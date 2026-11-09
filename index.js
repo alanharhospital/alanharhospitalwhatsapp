@@ -5,11 +5,13 @@ const {
     fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const qrcode = require('qrcode-terminal');
 
 // رقم واتساب المشرف بالصيغة الدولية (اليمن 967)
 const ADMIN_JID = '967771422070@s.whatsapp.net';
 const OFFERS_IMAGE_URL = 'https://alanharhospital.com/mener.png';
+
+// رقم الهاتف المراد ربط البوت به
+const BOT_PHONE_NUMBER = '967735539107';
 
 // تخزين حالة انتظار اسم الفحص لكل مريض بشكل مستقل حتى لا تتداخل الرسائل
 const waitingForTestMap = new Map();
@@ -319,23 +321,47 @@ async function processBotReply(sock, sender, rawText, pushName, patientPhone) {
     await sock.sendMessage(sender, { text: mainMenuText });
 }
 
+let pairingCodeRequested = false;
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
-const sock = makeWASocket({
-    auth: state,
-    logger: pino({ level: 'silent' }),
-    browser: ["Ubuntu", "Chrome", "20.0.04"]
-});
+    const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
+    });
+
+    // طلب كود الربط المباشر برقم الهاتف
+    if (!sock.authState.creds.registered && !pairingCodeRequested) {
+        pairingCodeRequested = true;
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
+                const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                console.log('\n======================================================');
+                console.log(`🔑 كود ربط الواتساب الخاص بالرقم (${BOT_PHONE_NUMBER}) هو:`);
+                console.log(`\n👉   ${formattedCode}   👈\n`);
+                console.log('في هاتفك: الإعدادات -> الأجهزة المرتبطة -> ربط جهاز -> الربط برقم الهاتف');
+                console.log('======================================================\n');
+            } catch (err) {
+                console.error('حدث خطأ أثناء طلب كود الربط:', err.message);
+                pairingCodeRequested = false;
+            }
+        }, 5000);
+    }
+
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log('\n📱 امسح رمز QR التالي من تطبيق الواتساب (الإعدادات -> الأجهزة المرتبطة -> ربط جهاز):');
-            qrcode.generate(qr, { small: true });
+            console.log('\n🔗 أو اضغط على هذا الرابط لفتح الباركود كصورة واضحة جداً ومسحها بالكاميرا:');
+            console.log('https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr) + '\n');
         }
 
         if (connection === 'close') {
@@ -343,9 +369,10 @@ const sock = makeWASocket({
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log('⚠️ انقطع الاتصال، إعادة المحاولة:', shouldReconnect);
             if (shouldReconnect) {
-                setTimeout(startBot, 3000);
+                pairingCodeRequested = false;
+                setTimeout(startBot, 4000);
             } else {
-                console.log('❌ تم تسجيل الخروج من الواتساب. احذف مجلد auth_info وأعد تشغيل السيرفر لمسح QR جديد.');
+                console.log('❌ تم تسجيل الخروج من الواتساب. احذف مجلد auth_info وأعد تشغيل السيرفر للربط من جديد.');
             }
         } else if (connection === 'open') {
             console.log('✅ تم تشغيل بوت مستشفى الأنهار التخصصي بنجاح وهو يعمل الآن 24/7!');
