@@ -323,12 +323,11 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: 'silent' })
-    });
-
+const sock = makeWASocket({
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    browser: ["Ubuntu", "Chrome", "20.0.04"]
+});
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
